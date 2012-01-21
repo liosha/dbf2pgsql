@@ -3,8 +3,6 @@
 # $Id$
 
 #
-# Usage: perl dbf2pgsql.pl file.dbf > file.sql
-#
 # Requires DBD::XBase
 #
 
@@ -36,25 +34,26 @@ usage()  unless @ARGV;
 
 #### Main action
 
-my $file = shift @ARGV;
-my $dbf = Dbf2Sql->new( $file, %options );
-
 binmode STDOUT, ':encoding(utf-8)';
 
-given ( $clear_mode ) {
-    when ( 'drop' ) {
-        say $dbf->get_drop_statement();
-        say $dbf->get_create_statement();
+my $filemask = shift @ARGV;
+for my $file ( glob $filemask ) {
+    my $dbf = Dbf2Sql->new( $file, %options );
+
+    given ( $clear_mode ) {
+        when ( 'drop' ) {
+            say $dbf->get_drop_statement();
+            say $dbf->get_create_statement();
+        }
+        when ( 'delete' ) {
+            say $dbf->get_delete_statement();
+        }
     }
-    when ( 'delete' ) {
-        say $dbf->get_delete_statement();
+
+    while ( my $statement = $dbf->get_next_insert_statement() ) {
+        say $statement;
     }
 }
-
-while ( my $statement = $dbf->get_next_insert_statement() ) {
-    say $statement;
-}
-
 
 
 sub usage
@@ -64,7 +63,7 @@ print <<"USAGE_END";
     ---| dbf2pgsql  (c) 2012 liosha, xliosha\@gmail.com
 
 Usage:
-    perl dbf2pgsql.pl [options] file.dbf  >  file.sql
+    perl dbf2pgsql.pl [options] files*.dbf  >  file.sql
 
 Options:
     -c  --encoding      input codepage
