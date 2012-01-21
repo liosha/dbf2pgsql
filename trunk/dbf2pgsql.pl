@@ -29,15 +29,19 @@ my $clear_mode  = 'drop'; # drop, delete
 
 GetOptions(
     'c|encoding=s'      => \$encoding,
-    's|insert_size=i'   => \$insert_size,
+    's|insert-size=i'   => \$insert_size,
     'clear=s'           => \$clear_mode,
 );
+
+usage()  unless @ARGV;
+
 
 
 #### Main
 
 my $dbf = shift @ARGV;
-my $table = XBase->new( $dbf );
+my $table = XBase->new( $dbf )
+    or die XBase->errstr;
 
 my $table_name = lc $dbf;
 $table_name =~ s/\.dbf$//ixms;
@@ -130,8 +134,7 @@ sub get_insert_row
 INIT {
 my @escape = qw/ ' \\ /;
 my %escape = ( "\b" => 'b', "\f" => 'f', "\n" => 'n', "\r" => 'r', "\t" => 't', );
-my $escape_re = qr/ [${\( join q{}, ( @escape, keys %escape ) )}] /xms;
-
+my $escape_re = qr/ [${\( join q{}, map {"\\$_"} ( @escape, values %escape ) )}] /xms;
 
 sub pg_quote
 {
@@ -146,4 +149,21 @@ sub pg_quote
 }
 
 
+sub usage
+{
+print <<"USAGE_END";
 
+    ---| dbf2pgsql  (c) 2012 liosha, xliosha\@gmail.com
+
+Usage:
+    perl dbf2pgsql.pl [options] file.dbf  >  file.sql
+
+Options:
+    -c  --encoding      input codepage [$encoding]
+    -s  --insert-size   number of rows in every insert operator [$insert_size]
+        --clear         table clear mode (drop, delete) [$clear_mode]
+
+USAGE_END
+
+exit;
+}
