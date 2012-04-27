@@ -22,12 +22,12 @@ our $VERSION = 0.02;
 #### Settings
 
 my %options;
-my $clear_mode  = 'drop'; # drop, delete
 
 GetOptions(
     'c|encoding=s'      => sub { $options{encoding} = $_->[1] },
     's|insert-size=i'   => sub { $options{insert_size} = $_->[1] },
-    'clear=s'           => \$clear_mode,
+    'clear=s'           => \my $clear_mode,
+    'o|output=s'        => \my $output_fn,
 );
 
 usage()  unless @ARGV;
@@ -36,7 +36,11 @@ usage()  unless @ARGV;
 
 #### Main action
 
-binmode STDOUT, ':encoding(utf-8)';
+my $output = $output_fn && $output_fn ne q{-}
+    ? do { open my $fh, '>', $output_fn; $fh }
+    : *STDOUT;
+binmode $output, ':encoding(utf-8)';
+
 
 my $filemask = shift @ARGV;
 for my $file ( glob $filemask ) {
@@ -44,18 +48,23 @@ for my $file ( glob $filemask ) {
 
     given ( $clear_mode ) {
         when ( 'drop' ) {
-            say $dbf->get_drop_statement();
-            say $dbf->get_create_statement();
+            say {$output} $dbf->get_drop_statement();
+            say {$output} $dbf->get_create_statement();
         }
         when ( 'delete' ) {
-            say $dbf->get_delete_statement();
+            say {$output} $dbf->get_delete_statement();
         }
     }
 
     while ( my $statement = $dbf->get_next_insert_statement() ) {
-        say $statement;
+        say {$output} $statement;
     }
 }
+
+close $output;
+exit;
+
+
 
 
 sub usage
@@ -68,6 +77,7 @@ Usage:
     perl dbf2pgsql.pl [options] files*.dbf  >  file.sql
 
 Options:
+    -o  --output        output file name
     -c  --encoding      input codepage
     -s  --insert-size   number of rows in every insert operator
         --clear         table clear mode (drop, delete)
