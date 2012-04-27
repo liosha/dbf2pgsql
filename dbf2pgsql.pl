@@ -22,11 +22,14 @@ our $VERSION = 0.02;
 #### Settings
 
 my %options;
+my $format = 'insert';
+
 
 GetOptions(
     'c|encoding=s'      => sub { $options{encoding} = $_->[1] },
     's|insert-size=i'   => sub { $options{insert_size} = $_->[1] },
     'clear=s'           => \my $clear_mode,
+    'f|format=s'        => \$format,
     'o|output=s'        => \my $output_fn,
 );
 
@@ -56,8 +59,19 @@ for my $file ( glob $filemask ) {
         }
     }
 
-    while ( my $statement = $dbf->get_next_insert_statement() ) {
-        say {$output} $statement;
+    given ( $format ) {
+        when ( 'copy' ) {
+            say {$output} $dbf->get_copy_statement();
+            while ( my $csv = $dbf->get_next_csv_portion() ) {
+                say {$output} $csv;
+            }
+            say {$output} q{\.};
+        }
+        when ( 'insert' ) {
+            while ( my $statement = $dbf->get_next_insert_statement() ) {
+                say {$output} $statement;
+            }
+        }
     }
 }
 
@@ -78,7 +92,8 @@ Usage:
 
 Options:
     -o  --output        output file name
-    -c  --encoding      input codepage
+    -c  --encoding      dbf codepage
+    -f  --format        table populating mode (insert, copy)
     -s  --insert-size   number of rows in every insert operator
         --clear         table clear mode (drop, delete)
 
@@ -173,35 +188,87 @@ sub get_delete_statement
 }
 
 
+sub get_copy_statement
+{
+    my ($self) = @_;
+    my $row_list = join q{, }, map {lc $_->{name}} @{ $self->{fields} };
+    return "COPY $self->{table_name} ($row_list) FROM stdin;";
+}
 
-sub get_next_insert_statement
+
+sub _get_next_data_portion
 {
     my ($self) = @_;
 
     my @rows;
-    while ( my $row = $self->{cursor}->fetch_hashref() ) {
+    for ( 1 .. $self->{insert_size} // 10000 ) {
+        my $row = $self->{cursor}->fetch_hashref();
+        last if !$row;
         push @rows, $row;
-        last if $self->{insert_size} && @rows == $self->{insert_size};
     }
 
-    return q{} if !@rows;
+    return \@rows;
+}
+
+
+sub get_next_csv_portion
+{
+    my ($self) = @_;
+    my $rows = $self->_get_next_data_portion();
+    return q{} if !@$rows;
+
+    return join qq{\n}, map { $self->_get_csv_row($_) } @$rows;
+}
+
+
+sub _get_csv_row
+{
+    my ($self, $row) = @_;
+    return join qq{\t}, map { $self->_pg_csv_quote($row->{$_->{name}}, $_) } @{ $self->{fields} };
+}
+
+
+{
+my @escape = qw/ \\ /;
+my %escape = ( "\b" => 'b', "\f" => 'f', "\n" => 'n', "\r" => 'r', "\t" => 't', );
+my $escape_re = qr/ [${\( join q{}, map {"\\$_"} ( @escape, values %escape ) )}] /xms;
+
+sub _pg_csv_quote
+{
+    my ($self, $text, $row_info) = @_;
+    return '\N' if !defined $text;
+    return $text  if !$row_info->{quote};
+
+    $text = decode $self->{encoding}, $text  if $self->{encoding};
+    $text =~ s#($escape_re)#q{\\}.($escape{$1}//$1)#egxms;
+    return $text;
+}
+}
+
+
+
+sub get_next_insert_statement
+{
+    my ($self) = @_;
+    my $rows = $self->_get_next_data_portion();
+    return q{} if !@$rows;
 
     return "INSERT INTO $self->{table_name} ( "
         . join( q{, }, map {lc $_->{name}} @{ $self->{fields} } )
         . " ) VALUES\n"
-        . join( qq{,\n}, map { q{    } . $self->get_insert_row($_) } @rows )
+        . join( qq{,\n}, map { q{    } . $self->_get_insert_row($_) } @$rows )
         . qq{;\n};
 }
 
 
-sub get_insert_row
+sub _get_insert_row
 {
     my ($self, $row) = @_;
     return q{( } . join( q{, }, map { $self->_pg_quote($row->{$_->{name}}, $_) } @{ $self->{fields} } ) . q{ )};
 }
 
 
-
+{
 my @escape = qw/ ' \\ /;
 my %escape = ( "\b" => 'b', "\f" => 'f', "\n" => 'n', "\r" => 'r', "\t" => 't', );
 my $escape_re = qr/ [${\( join q{}, map {"\\$_"} ( @escape, values %escape ) )}] /xms;
@@ -216,6 +283,6 @@ sub _pg_quote
     my $is_escaped = $text =~ s#($escape_re)#q{\\}.($escape{$1}//$1)#egxms;
     return ( $is_escaped ? 'E' : q{} ) . qq{'$text'};    
 }
-
+}
 
 }
