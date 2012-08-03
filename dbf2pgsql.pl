@@ -178,7 +178,7 @@ sub get_create_statement
 sub get_drop_statement
 {
     my ($self) = @_;
-    return "DROP TABLE IF EXIST $self->{table_name};\n";
+    return "DROP TABLE IF EXISTS $self->{table_name};\n";
 }
 
 sub get_delete_statement
